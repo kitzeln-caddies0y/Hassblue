@@ -1,0 +1,95 @@
+blueprint:
+  name: PV Eigenverbrauchsoptimierung v4
+  description: "Automatisiert Gerätesteuerung bei Überschussstrom, mit Fehlertoleranz und Logging"
+  domain: automation
+  input:
+    switch_entity:
+      name: Zu steuerndes Gerät
+      selector:
+        entity:
+          domain: switch
+    min_batterieladung:
+      name: Minimaler Batterieladezustand
+      default: 75
+      selector:
+        number:
+          min: 0
+          max: 100
+          mode: box
+
+alias: _PV Eigenverbrauch 4 (Robust)
+description: >-
+  Optimiert Eigenverbrauch durch Gerätesteuerung bei Stromüberschuss,
+  mit Fehlerbehandlung und Recovery-Mechanismen
+
+trigger:
+  - platform: time_pattern
+    minutes: "/15"  # Alle 15 Minuten für schnelleres Ansprechen
+  - platform: state
+    entity_id: sensor.power_meter_wirkleistung
+    for: "00:05:00"
+
+condition:
+  - condition: and
+    conditions:
+      - condition: sun
+        after: sunrise
+        before: sunset
+      - condition: template
+        value_template: >-
+          {{ states('sensor.batteries_batterieladung') | float(0) > 
+          (min_batterieladung | default(75)) }}
+      - condition: template
+        value_template: >-
+          {{ (states('sensor.power_meter_wirkleistung') | float(0)) > 
+          (state_attr('sensor.power_meter_wirkleistung', 'grid_threshold') | default(-500)) }}
+
+action:
+  - choose:
+      - conditions:
+          - condition: state
+            entity_id: switch.pv_warmwasser_switch_0
+            state: "off"
+          - condition: template
+            value_template: "{{ is_state_attr('switch.pv_warmwasser_switch_0', 'available', true) }}"
+        sequence:
+          - service: switch.turn_on
+            target:
+              entity_id: "{{ switch_entity }}"
+            metadata: {}
+            data: {}
+          - parallel:
+              - delay: "{{ [45, 60, 75] | random }}:00"  # Zufällige Laufzeit zwischen 45-75 Min
+              - wait_for_trigger:
+                  - platform: numeric_state
+                    entity_id: sensor.power_meter_wirkleistung
+                    below: -1000  # Abschaltung bei starkem Export
+                    for: "00:05:00"
+          - service: switch.turn_off
+            target:
+              entity_id: "{{ switch_entity }}"
+            metadata: {}
+            data: {}
+    default:
+      - choose:
+          - conditions:
+              - condition: template
+                value_template: "{{ not is_state_attr('switch.pv_warmwasser_switch_0', 'available', true) }}"
+            sequence:
+              - service: persistent_notification.create
+                data:
+                  title: "PV-Steuerung Fehler"
+                  message: "Warmwasser-Schalter nicht verfügbar!"
+              - service: system_log.write
+                data:
+                  level: error
+                  message: "Gerät {{ switch_entity }} nicht erreichbar"
+                  
+  - service: input_number.set_value
+    target:
+      entity_id: input_number.automation_counter
+    data:
+      value: "{{ states('input_number.automation_counter') | float(0) + 1 }}"
+
+mode: queued
+max: 10
