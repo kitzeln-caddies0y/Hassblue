@@ -1,5 +1,5 @@
 blueprint:
-  name: Klimaanlage Dachgeschoss steuern
+  name: BP Klimaanlage mit PV steuern
   description: >
     Steuert eine Klimaanlage basierend auf Temperatur, Uhrzeit und Energieeinspeisung.
     Aktiv zwischen zwei Uhrzeiten, mit Grenzwerten für Temperatur und Einspeisung.
