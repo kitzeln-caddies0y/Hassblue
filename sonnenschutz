@@ -1,0 +1,78 @@
+blueprint:
+  name: Sonnenschutz Steuerung
+  description: Dieser Blueprint steuert den Sonnenschutz basierend auf der Tageszeit, Energieproduktion und Warnstufe.
+  domain: automation
+  input:
+    energy_sensor:
+      name: Energieproduktionssensor
+      description: Der Sensor, der die Energieproduktion misst.
+      selector:
+        entity:
+          domain: sensor
+    warning_sensor:
+      name: Warnstufensensor
+      description: Der Sensor, der die aktuelle Warnstufe misst.
+      selector:
+        entity:
+          domain: sensor
+    scene_day:
+      name: Szene für Sonnenschutz aktivieren
+      description: Die Szene, die aktiviert wird, um den Sonnenschutz zu aktivieren.
+      selector:
+        entity:
+          domain: scene
+    scene_night:
+      name: Szene für Sonnenschutz deaktivieren
+      description: Die Szene, die aktiviert wird, um den Sonnenschutz zu deaktivieren.
+      selector:
+        entity:
+          domain: scene
+    notify_device:
+      name: Benachrichtigungsgerät
+      description: Das Gerät, das für Benachrichtigungen verwendet wird.
+      selector:
+        entity:
+          domain: notify
+
+trigger:
+  - platform: time
+    at: "12:30:00"
+
+condition:
+  - condition: and
+    conditions:
+      - condition: numeric_state
+        entity_id: !input energy_sensor
+        above: 30
+      - condition: time
+        before: "14:00:00"
+        after: "12:29:59"
+      - condition: template
+        value_template: "{{ now().month in [6, 7, 8] }}"
+      - condition: numeric_state
+        entity_id: !input warning_sensor
+        attribute: warning_count
+        above: -0.1
+
+action:
+  - service: scene.turn_on
+    target:
+      entity_id: !input scene_day
+  - service: notify
+    data:
+      message: "Sonnenschutz aktiviert!"
+    target:
+      entity_id: !input notify_device
+  - wait_for_trigger:
+      - platform: time
+        at: "18:00:00"
+  - service: scene.turn_on
+    target:
+      entity_id: !input scene_night
+  - service: notify
+    data:
+      message: "Sonnenschutz deaktiviert!"
+    target:
+      entity_id: !input notify_device
+
+mode: restart
