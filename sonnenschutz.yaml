@@ -1,5 +1,5 @@
 blueprint:
-  name: Sonnenschutz Steuerung
+  name: BP Sonnenschutz Steuerung
   description: Dieser Blueprint steuert den Sonnenschutz basierend auf der Tageszeit, Energieproduktion und Warnstufe.
   domain: automation
   input:
