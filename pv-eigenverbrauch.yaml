@@ -1,5 +1,5 @@
 blueprint:
-  name: PV Eigenverbrauchsoptimierung v4
+  name: BP Eigenverbrauchsoptimierung-PV
   description: "Automatisiert Gerätesteuerung bei Überschussstrom, mit Fehlertoleranz und Logging"
   domain: automation
   input:
