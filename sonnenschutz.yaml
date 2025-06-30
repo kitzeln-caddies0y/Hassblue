@@ -1,78 +1,134 @@
-blueprint:
-  name: BP Sonnenschutz Steuerung
-  description: Dieser Blueprint steuert den Sonnenschutz basierend auf der Tageszeit, Energieproduktion und Warnstufe.
-  domain: automation
-  input:
-    energy_sensor:
-      name: Energieproduktionssensor
-      description: Der Sensor, der die Energieproduktion misst.
-      selector:
-        entity:
-          domain: sensor
-    warning_sensor:
-      name: Warnstufensensor
-      description: Der Sensor, der die aktuelle Warnstufe misst.
-      selector:
-        entity:
-          domain: sensor
-    scene_day:
-      name: Szene für Sonnenschutz aktivieren
-      description: Die Szene, die aktiviert wird, um den Sonnenschutz zu aktivieren.
-      selector:
-        entity:
-          domain: scene
-    scene_night:
-      name: Szene für Sonnenschutz deaktivieren
-      description: Die Szene, die aktiviert wird, um den Sonnenschutz zu deaktivieren.
-      selector:
-        entity:
-          domain: scene
-    notify_device:
-      name: Benachrichtigungsgerät
-      description: Das Gerät, das für Benachrichtigungen verwendet wird.
-      selector:
-        entity:
-          domain: notify
-
-trigger:
-  - platform: time
-    at: "12:30:00"
-
-condition:
+alias: Sonnenschutz Strasse V8
+description: >
+  Optimierte Steuerung des Sonnenschutzes auf der Strassenseite mit Hysterese,
+  Mindestlaufzeit und stabilen Bedingungen.
+triggers:
+  - entity_id: weather.wetter_jetzt_home
+    attribute: temperature
+    above: 22
+    for:
+      minutes: 10
+    trigger: numeric_state
+  - entity_id: weather.wetter_jetzt_home
+    attribute: temperature
+    below: 20
+    for:
+      minutes: 10
+    trigger: numeric_state
+  - entity_id: weather.wetter_jetzt_home
+    to:
+      - sunny
+      - clear
+      - partlycloudy
+    for:
+      minutes: 10
+    trigger: state
+  - entity_id: weather.wetter_jetzt_home
+    from:
+      - sunny
+      - clear
+      - partlycloudy
+    for:
+      minutes: 10
+    trigger: state
+  - entity_id: input_boolean.automation_rolladen_auf
+    to: "on"
+    trigger: state
+  - entity_id: input_boolean.automation_rolladen_auf
+    to: "off"
+    trigger: state
+  - at: "13:00:00"
+    trigger: time
+conditions:
   - condition: and
     conditions:
-      - condition: numeric_state
-        entity_id: !input energy_sensor
-        above: 30
       - condition: time
-        before: "14:00:00"
-        after: "12:29:59"
+        after: "06:00:00"
+        before: "13:30:00"
       - condition: template
-        value_template: "{{ now().month in [6, 7, 8] }}"
-      - condition: numeric_state
-        entity_id: !input warning_sensor
-        attribute: warning_count
-        above: -0.1
-
-action:
-  - service: scene.turn_on
-    target:
-      entity_id: !input scene_day
-  - service: notify
-    data:
-      message: "Sonnenschutz aktiviert!"
-    target:
-      entity_id: !input notify_device
-  - wait_for_trigger:
-      - platform: time
-        at: "18:00:00"
-  - service: scene.turn_on
-    target:
-      entity_id: !input scene_night
-  - service: notify
-    data:
-      message: "Sonnenschutz deaktiviert!"
-    target:
-      entity_id: !input notify_device
-
+        value_template: "{{ 5 <= now().month <= 9 }}"
+        alias: Monate Mai bis September
+      - condition: template
+        value_template: >
+          {% set last =
+          states('input_datetime.last_rolladen_move_strassenseite') %} {{ last
+          != 'unknown' and (now() - strptime(last,
+          '%Y-%m-%dT%H:%M:%S')).total_seconds() > 3600 }}
+        enabled: false
+actions:
+  - choose:
+      - conditions:
+          - condition: state
+            entity_id: input_boolean.automation_rolladen_auf
+            state: "on"
+          - condition: state
+            entity_id: input_boolean.sonnenschutz_strassenseite_aktiv
+            state: "off"
+          - condition: numeric_state
+            entity_id: weather.wetter_jetzt_home
+            attribute: temperature
+            above: 22
+          - condition: state
+            entity_id: weather.wetter_jetzt_home
+            state:
+              - sunny
+              - clear
+              - partlycloudy
+        sequence:
+          - target:
+              entity_id: input_boolean.sonnenschutz_strassenseite_aktiv
+            action: input_boolean.turn_on
+            data: {}
+          - data:
+              title: Sonnenschutz aktiviert
+              message: Rolläden auf der Strassenseite werden gesenkt.
+            action: notify.notify
+          - delay: "00:01:00"
+          - target:
+              entity_id: scene.buro_rollo_sonnenschutz
+            action: scene.turn_on
+            data: {}
+          - data:
+              entity_id: input_datetime.last_rolladen_move_strassenseite
+              datetime: "{{ now().isoformat() }}"
+            action: input_datetime.set_datetime
+      - conditions:
+          - condition: state
+            entity_id: input_boolean.sonnenschutz_strassenseite_aktiv
+            state: "on"
+          - condition: or
+            conditions:
+              - condition: numeric_state
+                entity_id: weather.wetter_jetzt_home
+                attribute: temperature
+                below: 20
+              - condition: not
+                conditions:
+                  - condition: state
+                    entity_id: weather.wetter_jetzt_home
+                    state:
+                      - sunny
+                      - clear
+                      - partlycloudy
+        sequence:
+          - data:
+              title: Sonnenschutz deaktiviert
+              message: Rolläden auf der Strassenseite werden geöffnet.
+            action: notify.notify
+          - delay: "00:01:00"
+          - target:
+              entity_id: scene.sonnenschutz_strassenseite_hoch
+            action: scene.turn_on
+            data: {}
+          - data:
+              message: Sonnenschutz Strassenseite wurde deaktiviert.
+            action: persistent_notification.create
+          - target:
+              entity_id: input_boolean.sonnenschutz_strassenseite_aktiv
+            action: input_boolean.turn_off
+            data: {}
+          - data:
+              entity_id: input_datetime.last_rolladen_move_strassenseite
+              datetime: "{{ now().isoformat() }}"
+            action: input_datetime.set_datetime
 mode: restart
