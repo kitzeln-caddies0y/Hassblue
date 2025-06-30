@@ -1,0 +1,120 @@
+alias: Sonnenschutz Garten V9
+description: >
+  Optimierte Steuerung des Sonnenschutzes auf der Gartenseite mit Hysterese,
+  Mindestlaufzeit, stabilen Bedingungen und abendlicher Rücknahme.
+triggers:
+  - entity_id: weather.wetter_jetzt_home
+    attribute: temperature
+    above: 22
+    for:
+      minutes: 10
+    trigger: numeric_state
+  - entity_id: weather.wetter_jetzt_home
+    attribute: temperature
+    below: 20
+    for:
+      minutes: 10
+    trigger: numeric_state
+  - entity_id: weather.wetter_jetzt_home
+    to:
+      - sunny
+      - clear
+      - partlycloudy
+    for:
+      minutes: 10
+    trigger: state
+  - entity_id: weather.wetter_jetzt_home
+    from:
+      - sunny
+      - clear
+      - partlycloudy
+    for:
+      minutes: 10
+    trigger: state
+  - entity_id: input_boolean.automation_rolladen_auf
+    to: "on"
+    trigger: state
+  - entity_id: input_boolean.automation_rolladen_auf
+    to: "off"
+    trigger: state
+  - at: "19:00:00"
+    trigger: time
+conditions:
+  - condition: and
+    conditions:
+      - condition: template
+        value_template: "{{ 5 <= now().month <= 9 }}"
+        alias: Monate Mai bis September
+      - condition: time
+        after: "13:00:00"
+        before: "18:30:00"
+actions:
+  - choose:
+      - conditions:
+          - condition: state
+            entity_id: input_boolean.automation_rolladen_auf
+            state: "on"
+          - condition: state
+            entity_id: input_boolean.sonnenschutz_aktiv
+            state: "off"
+          - condition: numeric_state
+            entity_id: weather.wetter_jetzt_home
+            attribute: temperature
+            above: 22
+          - condition: state
+            entity_id: weather.wetter_jetzt_home
+            state:
+              - sunny
+              - clear
+              - partlycloudy
+          - condition: template
+            value_template: >
+              {% set last = states('input_datetime.last_rolladen_move') %} {{
+              last != 'unknown' and (now() - strptime(last,
+              '%Y-%m-%dT%H:%M:%S')).total_seconds() > 3600 }}
+        sequence:
+          - target:
+              entity_id: input_boolean.sonnenschutz_aktiv
+            action: input_boolean.turn_on
+            data: {}
+          - data:
+              title: Sonnenschutz aktiviert
+              message: Rolläden auf der Gartenseite werden gesenkt.
+            action: notify.notify
+          - delay: "00:01:00"
+          - target:
+              entity_id: scene.rolladen_sonnenschutz_garten
+            action: scene.turn_on
+            data: {}
+          - data:
+              entity_id: input_datetime.last_rolladen_move
+              datetime: "{{ now().isoformat() }}"
+            action: input_datetime.set_datetime
+      - conditions:
+          - condition: state
+            entity_id: input_boolean.sonnenschutz_aktiv
+            state: "on"
+          - condition: or
+            conditions:
+              - condition: numeric_state
+                entity_id: weather.wetter_jetzt_home
+                attribute: temperature
+                below: 20
+              - condition: not
+                conditions:
+                  - condition: state
+                    entity_id: weather.wetter_jetzt_home
+                    state:
+                      - sunny
+                      - clear
+                      - partlycloudy
+          - condition: template
+            value_template: >
+              {% set last = states('input_datetime.last_rolladen_move') %} {{
+              last != 'unknown' and (now() - strptime(last,
+              '%Y-%m-%dT%H:%M:%S')).total_seconds() > 3600 }}
+        sequence:
+          - data:
+              title: Sonnenschutz deaktiviert
+              message: Rolläden auf der Gartenseite werden geöffnet.
+            action: notify.notify
